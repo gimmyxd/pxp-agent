@@ -1,14 +1,13 @@
 require 'pxp-agent/test_helper.rb'
 require 'yaml'
 
-test_name  'Run puppet agent as non-root' do
-
+test_name 'Run puppet agent as non-root' do
   agents.each do |agent|
     platform = agent.platform
     skip_test "Test is not compatible with #{platform}" if platform =~ /windows/
 
     step 'create non-root user on all nodes' do
-      @user_name = 'foo'
+      @user_name = agent.platform =~ /osx-10.14/ ? 'osx' : 'foo'
       @group_name = 'foobar'
       if platform =~ /solaris/
         @user_home_dir = "/export/home/#{@user_name}"
@@ -35,6 +34,8 @@ test_name  'Run puppet agent as non-root' do
       get_process_pids(agent, 'pxp-agent').each do |pid|
         on(agent, "kill -9 #{pid}", :accept_all_exit_codes => true)
       end
+      next if agent.platform =~ /osx-10.14/
+
       on(agent, puppet("resource user #{@user_name} ensure=absent"))
       on(agent, "rm -rf #{@user_home_dir}")
     end
