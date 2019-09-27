@@ -57,17 +57,30 @@ def expect_file_on_host_to_contain(host, file, expected, seconds=30)
   end
 end
 
+def append_jvm_limits(command)
+  "export JVM_OPTS=\"-Xms2g -Xmx2g\"; export LEIN_JVM_OPTS=\"-Xms2g -Xmx2g\"; #{command}"
+end
+
 # Some helpers for working with a pcp-broker 'lein tk' instance
 def run_pcp_broker(host, instance=0)
   timeout = 120
+  max_atteps = 100
   host[:pcp_broker_instance] = instance
-  on(host, "cd #{GIT_CLONE_FOLDER}/pcp-broker#{instance}; export LEIN_ROOT=ok; \
-     lein with-profile #{LEIN_PROFILE} tk </dev/null >/var/log/puppetlabs/pcp-broker.log.#{SecureRandom.uuid} 2>&1 &")
+
+  lein_command = "cd #{GIT_CLONE_FOLDER}/pcp-broker#{instance}; export LEIN_ROOT=ok; \
+    lein with-profile #{LEIN_PROFILE} tk </dev/null >/var/log/puppetlabs/pcp-broker.log.#{SecureRandom.uuid} 2>&1 &"
+
+  if host[:gke_container]
+    lein_command = append_jvm_limits(lein_command)
+    max_atteps = 300
+  end
+
+  on(host, lein_command)
   assert(port_open_within?(host, PCP_BROKER_PORTS[instance], timeout),
          "pcp-broker port #{PCP_BROKER_PORTS[instance].to_s} not open within #{(timeout/60).to_s} minutes of starting the broker")
   broker_state = nil
   attempts = 0
-  until broker_state == "running" or attempts == 100 do
+  until broker_state == "running" || attempts == max_atteps do
     broker_state = get_pcp_broker_status(host)
     if broker_state != "running"
       attempts += 1
@@ -166,7 +179,7 @@ def pcp_broker_inventory(broker, query)
   }.to_json
 
   message_expiry = 10 # Seconds for the PCP message to be considered failed
-  inventory_expiry = 60 # Seconds for the inventory request to be considered failed
+  inventory_expiry = 120 # Seconds for the inventory request to be considered failed
   message.expires(message_expiry)
 
   client.send(message)
@@ -203,8 +216,10 @@ end
 # @param retries the number of times to retry checking the inventory. Default 60 to allow for slow test VMs. Set to 0 to only check once.
 # @return if the identity is in the broker's inventory within the allowed number of retries
 #         false if the identity remains absent from the broker's inventory after the allowed number of retries
-PCP_INVENTORY_RETRIES = 60
+PCP_INVENTORY_RETRIES = 220
+
 def is_associated?(broker, identity, retries = PCP_INVENTORY_RETRIES)
+  retries = PCP_INVENTORY_RETRIES
   if retries == 0
     return pcp_broker_inventory(broker,identity).include?(identity)
   end
@@ -225,6 +240,7 @@ end
 # @return true if the identity is absent from the broker's inventory within the allowed number of retries
 #         false if the identity persists in the broker's inventory after the allowed number of retries
 def is_not_associated?(broker, identity, retries = PCP_INVENTORY_RETRIES)
+  retries = PCP_INVENTORY_RETRIES
   if retries == 0
     return !pcp_broker_inventory(broker,identity).include?(identity)
   end
@@ -318,7 +334,7 @@ def rpc_request(broker, targets,
     client.send(message)
   end
 
-  rpc_action_expiry = 60 # Seconds for the entire RPC action to be considered failed
+  rpc_action_expiry = 120 # Seconds for the entire RPC action to be considered failed
 
   begin
     Timeout::timeout(rpc_action_expiry) do
@@ -351,7 +367,7 @@ end
 def connect_pcp_client(broker)
   client = nil
   retries = 0
-  max_retries = 10
+  max_retries = 60
   connected = false
   hostname = Socket.gethostname
   until (connected || retries == max_retries) do
@@ -558,7 +574,7 @@ def get_package_manager(host)
       pkg_manager = 'apt-get'
   end
   pkg_manager
-end  
+end
 
 def setup_squid_proxy(host)
   pkg_manager = get_package_manager(host)
