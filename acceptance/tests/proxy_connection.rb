@@ -39,7 +39,8 @@ test_name 'Connect via proxy' do
       on(agent, puppet('resource service pxp-agent ensure=running'))
       # now stop agent so that the log is available in proxy access log (only shows up when connection is "done")
       on(agent, puppet('resource service pxp-agent ensure=stopped'))
-      # prove the connection went through proxy 
+      # prove the connection went through proxy
+      on(master, 'sync')
       on(master, "cat #{squid_log}") do |result|
         assert_match(/CONNECT #{master}/, result.stdout, 'Proxy logs did not indicate use of the proxy.' )
       end
