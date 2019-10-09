@@ -57,17 +57,30 @@ def expect_file_on_host_to_contain(host, file, expected, seconds=30)
   end
 end
 
+def append_jvm_limits(command)
+  "export JVM_OPTS=\"-Xms2g -Xmx2g\"; export LEIN_JVM_OPTS=\"-Xms2g -Xmx2g\"; #{command}"
+end
+
 # Some helpers for working with a pcp-broker 'lein tk' instance
 def run_pcp_broker(host, instance=0)
   timeout = 120
+  max_atteps = 200
   host[:pcp_broker_instance] = instance
-  on(host, "cd #{GIT_CLONE_FOLDER}/pcp-broker#{instance}; export LEIN_ROOT=ok; \
-     lein with-profile #{LEIN_PROFILE} tk </dev/null >/var/log/puppetlabs/pcp-broker.log.#{SecureRandom.uuid} 2>&1 &")
+
+  lein_command = "cd #{GIT_CLONE_FOLDER}/pcp-broker#{instance}; export LEIN_ROOT=ok; \
+    lein with-profile #{LEIN_PROFILE} tk </dev/null >/var/log/puppetlabs/pcp-broker.log.#{SecureRandom.uuid} 2>&1 &"
+
+  if host[:gke_container]
+    lein_command = append_jvm_limits(lein_command)
+    max_atteps = 200
+  end
+
+  on(host, lein_command)
   assert(port_open_within?(host, PCP_BROKER_PORTS[instance], timeout),
          "pcp-broker port #{PCP_BROKER_PORTS[instance].to_s} not open within #{(timeout/60).to_s} minutes of starting the broker")
   broker_state = nil
   attempts = 0
-  until broker_state == "running" or attempts == 100 do
+  until broker_state == "running" || attempts == max_atteps do
     broker_state = get_pcp_broker_status(host)
     if broker_state != "running"
       attempts += 1
@@ -558,7 +571,7 @@ def get_package_manager(host)
       pkg_manager = 'apt-get'
   end
   pkg_manager
-end  
+end
 
 def setup_squid_proxy(host)
   pkg_manager = get_package_manager(host)
