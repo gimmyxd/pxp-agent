@@ -59,7 +59,7 @@ step 'Run lein deps to download dependencies' do
   for i in 0..NUM_BROKERS-1
     lein_command = "cd #{GIT_CLONE_FOLDER}/pcp-broker#{i}; export LEIN_ROOT=ok; \
       lein with-profile #{LEIN_PROFILE} deps"
-    lein_command = append_jvm_limits(lein_command)
+    lein_command = append_jvm_limits(lein_command) if master[:gke_container]
 
     on(master, lein_command)
   end
